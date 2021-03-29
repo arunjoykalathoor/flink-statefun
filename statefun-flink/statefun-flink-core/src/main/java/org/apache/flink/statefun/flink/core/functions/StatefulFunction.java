@@ -22,6 +22,7 @@ import org.apache.flink.statefun.flink.core.message.Message;
 import org.apache.flink.statefun.flink.core.message.MessageFactory;
 import org.apache.flink.statefun.flink.core.metrics.FunctionTypeMetrics;
 import org.apache.flink.statefun.sdk.Context;
+import org.apache.flink.statefun.sdk.VectorTimestamp;
 
 final class StatefulFunction implements LiveFunction {
   private final org.apache.flink.statefun.sdk.StatefulFunction statefulFunction;
@@ -44,8 +45,9 @@ final class StatefulFunction implements LiveFunction {
     try {
       ClassLoader targetClassLoader = statefulFunction.getClass().getClassLoader();
       Thread.currentThread().setContextClassLoader(targetClassLoader);
-      Object payload = message.payload(messageFactory, targetClassLoader);
-      statefulFunction.invoke(context, payload);
+      org.apache.flink.statefun.sdk.Message payload =(org.apache.flink.statefun.sdk.Message) message.payload(messageFactory, targetClassLoader);
+      context.setCurrentTime(new VectorTimestamp(payload.getTimeVector()));
+      statefulFunction.invoke(context, payload.getData());
     } catch (Exception e) {
       throw new StatefulFunctionInvocationException(context.self().type(), e);
     } finally {

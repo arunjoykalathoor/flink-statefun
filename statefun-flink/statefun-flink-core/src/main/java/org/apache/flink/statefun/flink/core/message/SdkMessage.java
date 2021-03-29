@@ -78,6 +78,15 @@ final class SdkMessage implements Message {
     factory.serializeEnvelope(envelope, target);
   }
 
+  @Override
+  public VectorTimestamp getTimeStamp() {
+    return null;
+  }
+  @Override
+  public void setTimeStamp(VectorTimestamp timeStamp) {
+     //Ignore
+  }
+
   private Envelope envelope(MessageFactory factory) {
     if (cachedEnvelope == null) {
       Builder builder = Envelope.newBuilder();

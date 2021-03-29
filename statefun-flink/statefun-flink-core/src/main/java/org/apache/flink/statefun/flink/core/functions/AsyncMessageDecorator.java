@@ -19,9 +19,11 @@ package org.apache.flink.statefun.flink.core.functions;
 
 import java.util.OptionalLong;
 import javax.annotation.Nullable;
+
 import org.apache.flink.core.memory.DataOutputView;
 import org.apache.flink.statefun.flink.core.message.Message;
 import org.apache.flink.statefun.flink.core.message.MessageFactory;
+import org.apache.flink.statefun.flink.core.message.VectorTimestamp;
 import org.apache.flink.statefun.sdk.Address;
 import org.apache.flink.statefun.sdk.AsyncOperationResult;
 import org.apache.flink.statefun.sdk.AsyncOperationResult.Status;
@@ -31,79 +33,89 @@ import org.apache.flink.statefun.sdk.AsyncOperationResult.Status;
  * with an async operation.
  */
 final class AsyncMessageDecorator<T> implements Message {
-  private final PendingAsyncOperations pendingAsyncOperations;
-  private final long futureId;
-  private final Message message;
-  private final Throwable throwable;
-  private final T result;
-  private final boolean restored;
+    private final PendingAsyncOperations pendingAsyncOperations;
+    private final long futureId;
+    private final Message message;
+    private final Throwable throwable;
+    private final T result;
+    private final boolean restored;
 
-  AsyncMessageDecorator(
-      PendingAsyncOperations pendingAsyncOperations,
-      long futureId,
-      Message message,
-      T result,
-      Throwable throwable) {
-    this.futureId = futureId;
-    this.pendingAsyncOperations = pendingAsyncOperations;
-    this.message = message;
-    this.throwable = throwable;
-    this.result = result;
-    this.restored = false;
-  }
-
-  AsyncMessageDecorator(
-      PendingAsyncOperations asyncOperationState, Long futureId, Message metadataMessage) {
-    this.futureId = futureId;
-    this.pendingAsyncOperations = asyncOperationState;
-    this.message = metadataMessage;
-    this.throwable = null;
-    this.result = null;
-    this.restored = true;
-  }
-
-  @Nullable
-  @Override
-  public Address source() {
-    return message.source();
-  }
-
-  @Override
-  public Address target() {
-    return message.target();
-  }
-
-  @Override
-  public Object payload(MessageFactory context, ClassLoader targetClassLoader) {
-    final Status status;
-    if (restored) {
-      status = Status.UNKNOWN;
-    } else if (throwable == null) {
-      status = Status.SUCCESS;
-    } else {
-      status = Status.FAILURE;
+    AsyncMessageDecorator(
+            PendingAsyncOperations pendingAsyncOperations,
+            long futureId,
+            Message message,
+            T result,
+            Throwable throwable) {
+        this.futureId = futureId;
+        this.pendingAsyncOperations = pendingAsyncOperations;
+        this.message = message;
+        this.throwable = throwable;
+        this.result = result;
+        this.restored = false;
     }
-    Object metadata = message.payload(context, targetClassLoader);
-    return new AsyncOperationResult<>(metadata, status, result, throwable);
-  }
 
-  @Override
-  public OptionalLong isBarrierMessage() {
-    return OptionalLong.empty();
-  }
+    AsyncMessageDecorator(
+            PendingAsyncOperations asyncOperationState, Long futureId, Message metadataMessage) {
+        this.futureId = futureId;
+        this.pendingAsyncOperations = asyncOperationState;
+        this.message = metadataMessage;
+        this.throwable = null;
+        this.result = null;
+        this.restored = true;
+    }
 
-  @Override
-  public void postApply() {
-    pendingAsyncOperations.remove(source(), futureId);
-  }
+    @Nullable
+    @Override
+    public Address source() {
+        return message.source();
+    }
 
-  @Override
-  public Message copy(MessageFactory context) {
-    throw new UnsupportedOperationException();
-  }
+    @Override
+    public Address target() {
+        return message.target();
+    }
 
-  @Override
-  public void writeTo(MessageFactory context, DataOutputView target) {
-    throw new UnsupportedOperationException();
-  }
+    @Override
+    public Object payload(MessageFactory context, ClassLoader targetClassLoader) {
+        final Status status;
+        if (restored) {
+            status = Status.UNKNOWN;
+        } else if (throwable == null) {
+            status = Status.SUCCESS;
+        } else {
+            status = Status.FAILURE;
+        }
+        Object metadata = message.payload(context, targetClassLoader);
+        return new AsyncOperationResult<>(metadata, status, result, throwable);
+    }
+
+    @Override
+    public OptionalLong isBarrierMessage() {
+        return OptionalLong.empty();
+    }
+
+    @Override
+    public void postApply() {
+        pendingAsyncOperations.remove(source(), futureId);
+    }
+
+    @Override
+    public VectorTimestamp getTimeStamp() {
+        return null;
+    }
+
+    @Override
+    public void setTimeStamp(VectorTimestamp timeStamp) {
+        //Ignore
+    }
+
+    @Override
+    public Message copy(MessageFactory context) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void writeTo(MessageFactory context, DataOutputView target) {
+        throw new UnsupportedOperationException();
+    }
 }

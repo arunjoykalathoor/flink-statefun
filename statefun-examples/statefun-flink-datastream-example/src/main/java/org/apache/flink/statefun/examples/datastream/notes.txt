@@ -1,0 +1,13 @@
+\org\apache\flink\runtime\state\DefaultKeyedStateStore.java
+org/apache/flink/streaming/api/operators/AbstractStreamOperator.java
+org/apache/flink/statefun/flink/core/functions/FunctionGroupOperator.java
+org/apache/flink/statefun/flink/core/functions/ReusableContext.java
+target {
+  namespace: "example"
+  type: "greet4"
+  id: "Stephan"
+}
+payload {
+  class_name: "java.lang.String"
+  payload_bytes: "\003\001Stepha\356"
+}

@@ -40,4 +40,8 @@ public interface Message extends RoutableMessage {
   void writeTo(MessageFactory context, DataOutputView target) throws IOException;
 
   default void postApply() {}
+
+  VectorTimestamp getTimeStamp();
+
+  void setTimeStamp(VectorTimestamp timeStamp);
 }

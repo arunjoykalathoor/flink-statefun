@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
@@ -38,6 +39,7 @@ import org.apache.flink.statefun.flink.core.common.MailboxExecutorFacade;
 import org.apache.flink.statefun.flink.core.common.ManagingResources;
 import org.apache.flink.statefun.flink.core.message.Message;
 import org.apache.flink.statefun.flink.core.message.MessageFactory;
+import org.apache.flink.statefun.flink.core.message.VectorTimestamp;
 import org.apache.flink.statefun.sdk.FunctionType;
 import org.apache.flink.statefun.sdk.StatefulFunctionProvider;
 import org.apache.flink.statefun.sdk.io.EgressIdentifier;
@@ -50,37 +52,37 @@ import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.util.OutputTag;
 
 public class FunctionGroupOperator extends AbstractStreamOperator<Message>
-    implements OneInputStreamOperator<Message, Message> {
+        implements OneInputStreamOperator<Message, Message> {
 
-  private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-  // -- configuration
-  private final Map<EgressIdentifier<?>, OutputTag<Object>> sideOutputs;
+    // -- configuration
+    private final Map<EgressIdentifier<?>, OutputTag<Object>> sideOutputs;
 
-  private final StatefulFunctionsConfig configuration;
+    private final StatefulFunctionsConfig configuration;
 
-  // -- runtime
-  private transient Reductions reductions;
-  private transient MailboxExecutor mailboxExecutor;
-  private transient BackPressureValve backPressureValve;
-  private transient List<ManagingResources> managingResources;
+    // -- runtime
+    private transient Reductions reductions;
+    private transient MailboxExecutor mailboxExecutor;
+    private transient BackPressureValve backPressureValve;
+    private transient List<ManagingResources> managingResources;
 
-  FunctionGroupOperator(
-      Map<EgressIdentifier<?>, OutputTag<Object>> sideOutputs,
-      StatefulFunctionsConfig configuration,
-      MailboxExecutor mailboxExecutor,
-      ChainingStrategy chainingStrategy,
-      ProcessingTimeService processingTimeService) {
-    this.sideOutputs = Objects.requireNonNull(sideOutputs);
-    this.configuration = Objects.requireNonNull(configuration);
-    this.mailboxExecutor = Objects.requireNonNull(mailboxExecutor);
-    this.chainingStrategy = chainingStrategy;
-    this.processingTimeService = processingTimeService;
-  }
+    FunctionGroupOperator(
+            Map<EgressIdentifier<?>, OutputTag<Object>> sideOutputs,
+            StatefulFunctionsConfig configuration,
+            MailboxExecutor mailboxExecutor,
+            ChainingStrategy chainingStrategy,
+            ProcessingTimeService processingTimeService) {
+        this.sideOutputs = Objects.requireNonNull(sideOutputs);
+        this.configuration = Objects.requireNonNull(configuration);
+        this.mailboxExecutor = Objects.requireNonNull(mailboxExecutor);
+        this.chainingStrategy = chainingStrategy;
+        this.processingTimeService = processingTimeService;
+    }
 
-  // ------------------------------------------------------------------------------------------------------------------
-  // Operator API
-  // ------------------------------------------------------------------------------------------------------------------
+    // ------------------------------------------------------------------------------------------------------------------
+    // Operator API
+    // ------------------------------------------------------------------------------------------------------------------
 
   @Override
   public void processElement(StreamRecord<Message> record) throws InterruptedException {
@@ -90,131 +92,131 @@ public class FunctionGroupOperator extends AbstractStreamOperator<Message>
     reductions.apply(record.getValue());
   }
 
-  @Override
-  public void open() throws Exception {
-    super.open();
-    final StatefulFunctionsUniverse statefulFunctionsUniverse =
-        statefulFunctionsUniverse(configuration);
+    @Override
+    public void open() throws Exception {
+        super.open();
+        final StatefulFunctionsUniverse statefulFunctionsUniverse =
+                statefulFunctionsUniverse(configuration);
 
-    final TypeSerializer<Message> envelopeSerializer =
-        getOperatorConfig().getTypeSerializerIn(0, getContainingTask().getUserCodeClassLoader());
-    final MapStateDescriptor<Long, Message> asyncOperationStateDescriptor =
-        new MapStateDescriptor<>(
-            "asyncOperations", LongSerializer.INSTANCE, envelopeSerializer.duplicate());
-    final ListStateDescriptor<Message> delayedMessageStateDescriptor =
-        new ListStateDescriptor<>(
-            FlinkStateDelayedMessagesBuffer.BUFFER_STATE_NAME, envelopeSerializer.duplicate());
-    final MapState<Long, Message> asyncOperationState =
-        getRuntimeContext().getMapState(asyncOperationStateDescriptor);
+        final TypeSerializer<Message> envelopeSerializer =
+                getOperatorConfig().getTypeSerializerIn(0, getContainingTask().getUserCodeClassLoader());
+        final MapStateDescriptor<Long, Message> asyncOperationStateDescriptor =
+                new MapStateDescriptor<>(
+                        "asyncOperations", LongSerializer.INSTANCE, envelopeSerializer.duplicate());
+        final ListStateDescriptor<Message> delayedMessageStateDescriptor =
+                new ListStateDescriptor<>(
+                        FlinkStateDelayedMessagesBuffer.BUFFER_STATE_NAME, envelopeSerializer.duplicate());
+        final MapState<Long, Message> asyncOperationState =
+                getRuntimeContext().getMapState(asyncOperationStateDescriptor);
 
-    Objects.requireNonNull(mailboxExecutor, "MailboxExecutor is unexpectedly NULL");
+        Objects.requireNonNull(mailboxExecutor, "MailboxExecutor is unexpectedly NULL");
 
-    this.backPressureValve =
-        new ThresholdBackPressureValve(configuration.getMaxAsyncOperationsPerTask());
+        this.backPressureValve =
+                new ThresholdBackPressureValve(configuration.getMaxAsyncOperationsPerTask());
 
-    //
-    // Remember what function providers are managing resources, so that we can close them when
-    // this task closes.
-    this.managingResources =
-        resourceManagingFunctionProviders(statefulFunctionsUniverse.functions());
+        //
+        // Remember what function providers are managing resources, so that we can close them when
+        // this task closes.
+        this.managingResources =
+                resourceManagingFunctionProviders(statefulFunctionsUniverse.functions());
 
-    //
-    // the core logic of applying messages to functions.
-    //
-    this.reductions =
-        Reductions.create(
-            backPressureValve,
-            statefulFunctionsUniverse,
-            getRuntimeContext(),
-            getKeyedStateBackend(),
-            new FlinkTimerServiceFactory(
-                super.getTimeServiceManager().orElseThrow(IllegalStateException::new)),
-            delayedMessagesBufferState(delayedMessageStateDescriptor),
-            sideOutputs,
-            output,
-            MessageFactory.forKey(statefulFunctionsUniverse.messageFactoryKey()),
-            new MailboxExecutorFacade(mailboxExecutor, "Stateful Functions Mailbox"),
-            getRuntimeContext().getMetricGroup().addGroup("functions"),
-            asyncOperationState);
+        //
+        // the core logic of applying messages to functions.
+        //
+        this.reductions =
+                Reductions.create(
+                        backPressureValve,
+                        statefulFunctionsUniverse,
+                        getRuntimeContext(),
+                        getKeyedStateBackend(),
+                        new FlinkTimerServiceFactory(
+                                super.getTimeServiceManager().orElseThrow(IllegalStateException::new)),
+                        delayedMessagesBufferState(delayedMessageStateDescriptor),
+                        sideOutputs,
+                        output,
+                        MessageFactory.forKey(statefulFunctionsUniverse.messageFactoryKey()),
+                        new MailboxExecutorFacade(mailboxExecutor, "Stateful Functions Mailbox"),
+                        getRuntimeContext().getMetricGroup().addGroup("functions"),
+                        asyncOperationState);
 
-    //
-    // expire all the pending async operations.
-    //
-    AsyncOperationFailureNotifier.fireExpiredAsyncOperations(
-        asyncOperationStateDescriptor, reductions, getKeyedStateBackend());
-  }
-
-  @Override
-  public void snapshotState(StateSnapshotContext context) throws Exception {
-    super.snapshotState(context);
-    reductions.snapshotAsyncOperations();
-  }
-
-  @Override
-  public void close() throws Exception {
-    try {
-      closeOrDispose();
-    } finally {
-      super.close();
+        //
+        // expire all the pending async operations.
+        //
+        AsyncOperationFailureNotifier.fireExpiredAsyncOperations(
+                asyncOperationStateDescriptor, reductions, getKeyedStateBackend());
     }
-  }
 
-  @Override
-  public void dispose() throws Exception {
-    try {
-      closeOrDispose();
-    } finally {
-      super.dispose();
+    @Override
+    public void snapshotState(StateSnapshotContext context) throws Exception {
+        super.snapshotState(context);
+        reductions.snapshotAsyncOperations();
     }
-  }
 
-  private void closeOrDispose() {
-    final List<ManagingResources> managingResources = this.managingResources;
-    if (managingResources == null) {
-      // dispose can be called before state initialization was completed (for example a failure
-      // during initialization).
-      return;
+    @Override
+    public void close() throws Exception {
+        try {
+            closeOrDispose();
+        } finally {
+            super.close();
+        }
     }
-    for (ManagingResources withResources : managingResources) {
-      try {
-        withResources.shutdown();
-      } catch (Throwable t) {
-        LOG.warn("Exception caught during close. It would be silently ignored.", t);
-      }
+
+    @Override
+    public void dispose() throws Exception {
+        try {
+            closeOrDispose();
+        } finally {
+            super.dispose();
+        }
     }
-  }
 
-  // ------------------------------------------------------------------------------------------------------------------
-  // Helpers
-  // ------------------------------------------------------------------------------------------------------------------
-
-  private InternalListState<String, Long, Message> delayedMessagesBufferState(
-      ListStateDescriptor<Message> delayedMessageStateDescriptor) {
-    try {
-      KeyedStateBackend<String> keyedStateBackend = getKeyedStateBackend();
-      return (InternalListState<String, Long, Message>)
-          keyedStateBackend.getOrCreateKeyedState(
-              LongSerializer.INSTANCE, delayedMessageStateDescriptor);
-    } catch (Exception e) {
-      throw new RuntimeException("Error registered Flink state for delayed messages buffer.", e);
+    private void closeOrDispose() {
+        final List<ManagingResources> managingResources = this.managingResources;
+        if (managingResources == null) {
+            // dispose can be called before state initialization was completed (for example a failure
+            // during initialization).
+            return;
+        }
+        for (ManagingResources withResources : managingResources) {
+            try {
+                withResources.shutdown();
+            } catch (Throwable t) {
+                LOG.warn("Exception caught during close. It would be silently ignored.", t);
+            }
+        }
     }
-  }
 
-  private StatefulFunctionsUniverse statefulFunctionsUniverse(
-      StatefulFunctionsConfig configuration) {
-    final ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-    return StatefulFunctionsUniverses.get(classLoader, configuration);
-  }
+    // ------------------------------------------------------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------------------------------------------------------
 
-  /**
-   * returns a list of {@linkplain StatefulFunctionProvider} that implement the (internal) marker
-   * interface {@linkplain ManagingResources}.
-   */
-  private static List<ManagingResources> resourceManagingFunctionProviders(
-      Map<FunctionType, StatefulFunctionProvider> functionProviders) {
-    return functionProviders.values().stream()
-        .filter(provider -> provider instanceof ManagingResources)
-        .map(provider -> (ManagingResources) provider)
-        .collect(Collectors.toList());
-  }
+    private InternalListState<String, Long, Message> delayedMessagesBufferState(
+            ListStateDescriptor<Message> delayedMessageStateDescriptor) {
+        try {
+            KeyedStateBackend<String> keyedStateBackend = getKeyedStateBackend();
+            return (InternalListState<String, Long, Message>)
+                    keyedStateBackend.getOrCreateKeyedState(
+                            LongSerializer.INSTANCE, delayedMessageStateDescriptor);
+        } catch (Exception e) {
+            throw new RuntimeException("Error registered Flink state for delayed messages buffer.", e);
+        }
+    }
+
+    private StatefulFunctionsUniverse statefulFunctionsUniverse(
+            StatefulFunctionsConfig configuration) {
+        final ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        return StatefulFunctionsUniverses.get(classLoader, configuration);
+    }
+
+    /**
+     * returns a list of {@linkplain StatefulFunctionProvider} that implement the (internal) marker
+     * interface {@linkplain ManagingResources}.
+     */
+    private static List<ManagingResources> resourceManagingFunctionProviders(
+            Map<FunctionType, StatefulFunctionProvider> functionProviders) {
+        return functionProviders.values().stream()
+                .filter(provider -> provider instanceof ManagingResources)
+                .map(provider -> (ManagingResources) provider)
+                .collect(Collectors.toList());
+    }
 }

@@ -58,6 +58,7 @@ import org.apache.flink.statefun.sdk.Address;
 import org.apache.flink.statefun.sdk.AsyncOperationResult;
 import org.apache.flink.statefun.sdk.AsyncOperationResult.Status;
 import org.apache.flink.statefun.sdk.FunctionType;
+import org.apache.flink.statefun.sdk.VectorTimestamp;
 import org.apache.flink.statefun.sdk.io.EgressIdentifier;
 import org.junit.Test;
 
@@ -384,6 +385,16 @@ public class RequestReplyFunctionTest {
     @Override
     public ExecutorService getAsyncPool() {
         return null;
+    }
+
+    @Override
+    public VectorTimestamp getCurrentTime() {
+      return null;
+    }
+
+    @Override
+    public void setCurrentTime(VectorTimestamp time) {
+    //Ignore
     }
   }
 

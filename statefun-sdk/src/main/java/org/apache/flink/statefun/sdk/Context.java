@@ -145,4 +145,7 @@ public interface Context {
   <M, T> void registerAsyncOperation(M metadata, CompletableFuture<T> future);
 
   ExecutorService getAsyncPool();
+
+  VectorTimestamp getCurrentTime();
+  void  setCurrentTime(VectorTimestamp time);
 }
