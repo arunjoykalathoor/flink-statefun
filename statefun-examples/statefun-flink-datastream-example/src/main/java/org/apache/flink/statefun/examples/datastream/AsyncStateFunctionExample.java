@@ -18,9 +18,18 @@
 
 package org.apache.flink.statefun.examples.datastream;
 
+import java.util.Properties;
 import org.apache.flink.api.common.functions.RichMapFunction;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.common.typeutils.base.LongSerializer;
+import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.RestOptions;
+import org.apache.flink.runtime.state.FunctionInitializationContext;
+import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.statefun.flink.core.StatefulFunctionsConfig;
 import org.apache.flink.statefun.flink.core.message.MessageFactoryType;
 import org.apache.flink.statefun.flink.core.message.RoutableMessage;
@@ -32,11 +41,15 @@ import org.apache.flink.statefun.sdk.annotations.Persisted;
 import org.apache.flink.statefun.sdk.io.EgressIdentifier;
 import org.apache.flink.statefun.sdk.state.PersistedAsyncValue;
 import org.apache.flink.statefun.sdk.state.PersistedValue;
+import org.apache.flink.streaming.api.CheckpointingMode;
+import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
+import org.apache.flink.streaming.api.checkpoint.ListCheckpointed;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.PrintSinkFunction;
+import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
-import org.apache.flink.streaming.runtime.streamrecord.VectorTimestamp;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
@@ -45,6 +58,8 @@ import java.util.Arrays;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
+import scala.Int;
+import scala.Serializable;
 
 public class AsyncStateFunctionExample {
 
@@ -74,17 +89,20 @@ public class AsyncStateFunctionExample {
         Logger rootLogger = Logger.getRootLogger();
         rootLogger.setLevel(Level.DEBUG);
 
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.enableCheckpointing(100);
+        //StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        //env.enableCheckpointing(100);
         Configuration conf = new Configuration();
         conf.setString(ConfigConstants.JOB_MANAGER_WEB_LOG_PATH_KEY, "/tmp");
         conf.setString(ConfigConstants.TASK_MANAGER_LOG_PATH_KEY, "/tmp");
         conf.setBoolean(ConfigConstants.LOCAL_START_WEBSERVER, true);
+        conf.setString(CheckpointingOptions.STATE_BACKEND,"remoteHeap");
+       // conf.setString(CheckpointingOptions.STATE_BACKEND,"filesystem");
 
-        //    conf.setInteger(RestOptions.PORT, 8050);
+            conf.setInteger(RestOptions.PORT, 8050);
 
-        //    StreamExecutionEnvironment env =
-        // StreamExecutionEnvironment.createLocalEnvironmentWithWebUI(conf);
+            StreamExecutionEnvironment env =
+         StreamExecutionEnvironment.createLocalEnvironmentWithWebUI(conf);
+          //  env.enableCheckpointing(30000, CheckpointingMode.EXACTLY_ONCE);
 
         env.getConfig().enableSysoutLogging();
         //    env.getConfig().setUseDynamicPartitioning(true);
@@ -93,15 +111,30 @@ public class AsyncStateFunctionExample {
         StatefulFunctionsConfig statefunConfig = StatefulFunctionsConfig.fromEnvironment(env);
         statefunConfig.setFactoryType(MessageFactoryType.WITH_KRYO_PAYLOADS);
 
+        //Kafka
+        //zookeeper-server-start.bat ../../config/zookeeper.properties
+        //kafka-server-start.bat  ../../config/server.properties
+        //kafka-topics.bat --create --topic sentences --bootstrap-server localhost:9092
+        //kafka-console-producer.bat --topic sentences --bootstrap-server localhost:9092
+        Properties properties = new Properties();
+        properties.setProperty("bootstrap.servers", "localhost:9092");
+        properties.setProperty("group.id", "test");
         System.out.print(env.getConfig());
         DataStream<RoutableMessage> names =
-                env.addSource(new NameSource())
-                        .map(
+            env.addSource(new NameSource())
+       // env.addSource(new FlinkKafkaConsumer<>("sentences", new SimpleStringSchema(), properties))
+                .map(
+                    name ->
+                        RoutableMessageBuilder.builder()
+                            .withTargetAddress(GREET4, "ALL")//name.getData()
+                            .withMessageBody(name)
+                            .build()); // .uid("source step");
+                  /*      .map(
                                 name ->
                                         RoutableMessageBuilder.builder()
                                                 .withTargetAddress(GREET4, "ALL")//name.getData()
-                                                .withMessageBody(name)
-                                                .build()); // .uid("source step");
+                                                .withMessageBody(new Message(name, new int[]{0,1,1}))
+                                                .build()); // .uid("source step");*/
 
         // -----------------------------------------------------------------------------------------
         // wire up stateful functions
@@ -112,6 +145,7 @@ public class AsyncStateFunctionExample {
                 StatefulFunctionDataStreamBuilder.builder("example")
                         .withDataStreamAsIngress(names)
                         .withFunctionProvider(GREET4, unused -> new MyFunction4())
+
                         /*.withRequestReplyRemoteFunction(
                                 requestReplyFunctionBuilder(
                                         REMOTE_GREET, URI.create("http://localhost:5000/statefun"))
@@ -415,7 +449,7 @@ public class AsyncStateFunctionExample {
         @Override
         public void invoke(Context context, Object input) {
             CountRecord seen = seenCount4.get();
-            if (seen == null) {
+           if (seen == null) {
                 seen= new CountRecord(1,new int[maxOperators]);
             } else {
                 seen.count++;
@@ -441,11 +475,16 @@ public class AsyncStateFunctionExample {
 
     }
 
-    private static final class NameSource implements SourceFunction<Message> {
+    private static final class NameSource   extends RichParallelSourceFunction<Message>
+        implements CheckpointedFunction
+
+    {
 
         private static final long serialVersionUID = 1;
 
         private volatile boolean canceled;
+
+        private ListState<Long> state;
 
         @Override
         public void run(SourceContext<Message> ctx) throws InterruptedException {
@@ -464,19 +503,40 @@ public class AsyncStateFunctionExample {
                         return;
                     }
                     ++vtime[0];
-                    System.out.println(name+" @Time:"+vtime[0]);
+                   // System.out.println(name+" @Time:"+vtime[0]);
                     ctx.collect(new Message(name, vtime));
+                    try {
+                        state.add(10L);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+
                 }
                 Thread.sleep(10);
                 if (count++ > 200000) {
                     break;
                 }
             }
+
+
         }
 
         @Override
         public void cancel() {
             canceled = true;
+        }
+
+        @Override
+        public void snapshotState(FunctionSnapshotContext context) throws Exception {
+
+        }
+
+        @Override
+        public void initializeState(FunctionInitializationContext context) throws Exception {
+
+            state = context.getOperatorStateStore().getListState(new ListStateDescriptor<>(
+                "state",
+                LongSerializer.INSTANCE));
         }
     }
 }
