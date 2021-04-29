@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import org.apache.flink.statefun.e2e.smoke.generated.SourceCommand;
 import org.apache.flink.statefun.sdk.Address;
 import org.apache.flink.statefun.sdk.Context;
+import org.apache.flink.statefun.sdk.VectorTimestamp;
 import org.apache.flink.statefun.sdk.io.EgressIdentifier;
 import org.apache.flink.statefun.sdk.state.PersistedValue;
 import org.junit.Test;
@@ -75,6 +76,16 @@ public class CommandInterpreterTest {
     @Override
     public ExecutorService getAsyncPool() {
       return null;
+    }
+
+    @Override
+    public VectorTimestamp getCurrentTime() {
+      return null;
+    }
+
+    @Override
+    public void setCurrentTime(VectorTimestamp time) {
+
     }
   }
 }

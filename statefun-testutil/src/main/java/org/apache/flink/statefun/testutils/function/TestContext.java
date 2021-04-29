@@ -37,6 +37,7 @@ import org.apache.flink.statefun.sdk.Address;
 import org.apache.flink.statefun.sdk.AsyncOperationResult;
 import org.apache.flink.statefun.sdk.Context;
 import org.apache.flink.statefun.sdk.StatefulFunction;
+import org.apache.flink.statefun.sdk.VectorTimestamp;
 import org.apache.flink.statefun.sdk.io.EgressIdentifier;
 
 /** A simple context that is strictly synchronous and captures all responses. */
@@ -135,6 +136,16 @@ class TestContext implements Context {
   @Override
   public ExecutorService getAsyncPool() {
     return null;
+  }
+
+  @Override
+  public VectorTimestamp getCurrentTime() {
+    return null;
+  }
+
+  @Override
+  public void setCurrentTime(VectorTimestamp time) {
+
   }
 
   @SuppressWarnings("unchecked")

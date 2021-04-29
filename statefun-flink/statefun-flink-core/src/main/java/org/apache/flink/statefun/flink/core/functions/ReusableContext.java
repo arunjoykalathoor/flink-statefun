@@ -42,6 +42,7 @@ final class ReusableContext implements ApplyingContext, InternalContext {
     private final State state;
     private final MessageFactory messageFactory;
 
+
     private Message in;
     private LiveFunction function;
 
