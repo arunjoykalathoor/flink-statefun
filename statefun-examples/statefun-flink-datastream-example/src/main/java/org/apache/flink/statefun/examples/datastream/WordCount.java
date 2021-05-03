@@ -59,16 +59,9 @@ import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunctio
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
-public class AsyncStateFunctionExample {
+public class WordCount {
 
-  private static final FunctionType GREET = new FunctionType("example", "greet");
-  private static final FunctionType GREET2 = new FunctionType("example", "greet2");
-  private static final FunctionType REMOTE_GREET = new FunctionType("example", "remote-greet");
-  private static final FunctionType REMOTE_GREET2 = new FunctionType("example", "remote-greet2");
-  private static final FunctionType GREET3 = new FunctionType("example", "greet3");
-  private static final FunctionType REMOTE_GREET3 = new FunctionType("example", "remote-greet3");
-  private static final FunctionType GREET4 = new FunctionType("example", "greet4");
-  private static final FunctionType REMOTE_GREET4 = new FunctionType("example", "remote-greet4");
+  private static final FunctionType WORD_COUNT_FUNCTION_TYPE = new FunctionType("wordcountjob", "wordcount");
   private static final EgressIdentifier<String> GREETINGS =
       new EgressIdentifier<>("example", "out", String.class);
   private static final EgressIdentifier<String> GREETINGS2 =
@@ -119,30 +112,20 @@ public class AsyncStateFunctionExample {
     properties.setProperty("group.id", "test");
     System.out.print(env.getConfig());
     DataStream<RoutableMessage> names =
-        env.addSource(new NameSource())
+        env.addSource(new TextLineSource())
             // env.addSource(new FlinkKafkaConsumer<>("sentences", new SimpleStringSchema(), properties))
-            .map(
-                name ->
-                    RoutableMessageBuilder.builder()
-                        .withTargetAddress(GREET4, "ALL")//name.getData()
-                        .withMessageBody(name)
-                        .build()); // .uid("source step");
-                  /*      .map(
-                                name ->
-                                        RoutableMessageBuilder.builder()
-                                                .withTargetAddress(GREET4, "ALL")//name.getData()
-                                                .withMessageBody(new Message(name, new int[]{0,1,1}))
-                                                .build()); // .uid("source step");*/
+            .flatMap((textLine, collector) ->
+                Arrays.stream(textLine.getData().split("\\s"))
+                    .forEach(word -> collector
+                        .collect(RoutableMessageBuilder.builder()
+                            .withTargetAddress(WORD_COUNT_FUNCTION_TYPE, "ALL")//name.getData()
+                            .withMessageBody(new Message(word, textLine.getTimeVector()))
+                            .build())));
 
-    // -----------------------------------------------------------------------------------------
-    // wire up stateful functions
-    // -----------------------------------------------------------------------------------------
-
-    //    StatefulFunctionEgressStreams out =
     StatefulFunctionDataStreamBuilder builder =
         StatefulFunctionDataStreamBuilder.builder("example")
             .withDataStreamAsIngress(names)
-            .withFunctionProvider(GREET4, unused -> new MyFunction4())
+            .withFunctionProvider(WORD_COUNT_FUNCTION_TYPE, unused -> new WordCountFunction())
 
             /*.withRequestReplyRemoteFunction(
                     requestReplyFunctionBuilder(
@@ -433,22 +416,7 @@ public class AsyncStateFunctionExample {
 
   }
 
-  private static final class MyFunction3 implements StatefulFunction {
 
-    @Persisted
-    private final PersistedValue<Integer> seenCount3 = PersistedValue.of("seen3", Integer.class);
-
-    @Override
-    public void invoke(Context context, Object input) {
-      int seen = seenCount3.updateAndGet(MyFunction3::increment);
-      System.out.println("MyFunction3: " + input.toString());
-      context.send(GREETINGS3, String.format("seen3: Hello %s at the %d-th time", input, seen));
-    }
-
-    private static int increment(@Nullable Integer n) {
-      return n == null ? 1 : n + 1;
-    }
-  }
 
   public static class CountRecord {
 
@@ -461,7 +429,7 @@ public class AsyncStateFunctionExample {
     }
   }
 
-  private static final class MyFunction4 implements StatefulFunction {
+  private static final class WordCountFunction implements StatefulFunction {
 
     @Persisted
     private final PersistedValue<CountRecord> seenCount4 = PersistedValue
@@ -502,7 +470,7 @@ public class AsyncStateFunctionExample {
 
   }
 
-  private static final class NameSource extends RichParallelSourceFunction<Message>
+  private static final class TextLineSource extends RichParallelSourceFunction<Message>
       implements CheckpointedFunction {
 
     private static final long serialVersionUID = 1;
@@ -529,10 +497,11 @@ public class AsyncStateFunctionExample {
           }
           ++vtime[0];
           // System.out.println(name+" @Time:"+vtime[0]);
-          ctx.collect(new Message(name, new int[]{0,0,0}));
+          ctx.collect(new Message(name, new int[]{0, 0, 0}));
           try {
             List<VTState> offset = new ArrayList<>();
-            offset.add(VTState.newBuilder().setOffset(count).addAllVt(Arrays.asList(vtime)).build());
+            offset
+                .add(VTState.newBuilder().setOffset(count).addAllVt(Arrays.asList(vtime)).build());
             state.update(offset);
           } catch (Exception e) {
             e.printStackTrace();

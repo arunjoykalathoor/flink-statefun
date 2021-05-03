@@ -42,6 +42,7 @@ import org.apache.flink.statefun.flink.core.message.RoutableMessage;
 import org.apache.flink.statefun.flink.core.message.RoutableMessageBuilder;
 import org.apache.flink.statefun.flink.datastream.StatefulFunctionDataStreamBuilder;
 import org.apache.flink.statefun.flink.datastream.StatefulFunctionEgressStreams;
+import org.apache.flink.statefun.sdk.Address;
 import org.apache.flink.statefun.sdk.AsyncOperationResult;
 import org.apache.flink.statefun.sdk.Context;
 import org.apache.flink.statefun.sdk.FunctionType;
@@ -59,7 +60,7 @@ import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunctio
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
-public class AsyncStateFunctionExample {
+public class AsyncStateFunctionReplayExample {
 
   private static final FunctionType GREET = new FunctionType("example", "greet");
   private static final FunctionType GREET2 = new FunctionType("example", "greet2");
@@ -69,6 +70,8 @@ public class AsyncStateFunctionExample {
   private static final FunctionType REMOTE_GREET3 = new FunctionType("example", "remote-greet3");
   private static final FunctionType GREET4 = new FunctionType("example", "greet4");
   private static final FunctionType REMOTE_GREET4 = new FunctionType("example", "remote-greet4");
+  private static final FunctionType LOGGER4 = new FunctionType("example", "logger4");
+
   private static final EgressIdentifier<String> GREETINGS =
       new EgressIdentifier<>("example", "out", String.class);
   private static final EgressIdentifier<String> GREETINGS2 =
@@ -124,7 +127,7 @@ public class AsyncStateFunctionExample {
             .map(
                 name ->
                     RoutableMessageBuilder.builder()
-                        .withTargetAddress(GREET4, "ALL")//name.getData()
+                        .withTargetAddress(LOGGER4, "ALL")//name.getData()
                         .withMessageBody(name)
                         .build()); // .uid("source step");
                   /*      .map(
@@ -142,6 +145,7 @@ public class AsyncStateFunctionExample {
     StatefulFunctionDataStreamBuilder builder =
         StatefulFunctionDataStreamBuilder.builder("example")
             .withDataStreamAsIngress(names)
+            .withFunctionProvider(LOGGER4, unused -> new LoggerFunction())
             .withFunctionProvider(GREET4, unused -> new MyFunction4())
 
             /*.withRequestReplyRemoteFunction(
@@ -501,6 +505,15 @@ public class AsyncStateFunctionExample {
 
 
   }
+  static final class LoggerFunction implements StatefulFunction {
+
+    @Override
+    public void invoke(Context context, Object input) {
+      System.out.println(input);
+      context.send(new Address(GREET4, "X"), new Message((String) input,new int[]{0,0,0}));
+    }
+  }
+
 
   private static final class NameSource extends RichParallelSourceFunction<Message>
       implements CheckpointedFunction {

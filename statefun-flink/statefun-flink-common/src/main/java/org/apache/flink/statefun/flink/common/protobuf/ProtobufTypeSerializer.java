@@ -41,7 +41,7 @@ public final class ProtobufTypeSerializer<M extends Message> extends TypeSeriali
   // Constructors
   // --------------------------------------------------------------------------------------------------
 
-  ProtobufTypeSerializer(Class<M> typeClass) {
+  public ProtobufTypeSerializer(Class<M> typeClass) {
     this(typeClass, ProtobufSerializer.forMessageGeneratedClass(typeClass));
   }
 
