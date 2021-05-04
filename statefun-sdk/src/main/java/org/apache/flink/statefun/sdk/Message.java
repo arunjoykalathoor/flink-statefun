@@ -1,10 +1,12 @@
 package org.apache.flink.statefun.sdk;
 
-public class Message {
-    String data;
-    int[] timeVector;
+import java.util.List;
 
-    public Message(String data, int[] timeVector) {
+public class Message {
+    private String data;
+    private List<Integer> timeVector;
+
+    public Message(String data, List<Integer>timeVector) {
         this.data = data;
         this.timeVector = timeVector;
     }
@@ -13,7 +15,7 @@ public class Message {
         return data;
     }
 
-    public int[] getTimeVector() {
+    public List<Integer> getTimeVector() {
         return timeVector;
     }
 }

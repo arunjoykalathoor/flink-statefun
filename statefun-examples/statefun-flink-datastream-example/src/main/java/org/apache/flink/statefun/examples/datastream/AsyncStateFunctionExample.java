@@ -529,7 +529,7 @@ public class AsyncStateFunctionExample {
           }
           ++vtime[0];
           // System.out.println(name+" @Time:"+vtime[0]);
-          ctx.collect(new Message(name, new int[]{0,0,0}));
+          ctx.collect(new Message(name, new VectorClock(5,1).getCurrentTime()));
           try {
             List<VTState> offset = new ArrayList<>();
             offset.add(VTState.newBuilder().setOffset(count).addAllVt(Arrays.asList(vtime)).build());

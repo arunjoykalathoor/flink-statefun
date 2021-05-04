@@ -1,0 +1,11 @@
+syntax = "proto2";
+
+package vt;
+
+option java_multiple_files = true;
+option java_package = "org.apache.flink.statefun.examples.datastream";
+
+message SourceOperatorState {
+  optional int32 offset = 1;
+  repeated int32 vTimestamp = 2;
+}

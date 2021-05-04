@@ -510,7 +510,7 @@ public class AsyncStateFunctionReplayExample {
     @Override
     public void invoke(Context context, Object input) {
       System.out.println(input);
-      context.send(new Address(GREET4, "X"), new Message((String) input,new int[]{0,0,0}));
+      context.send(new Address(GREET4, "X"), new Message((String) input,new VectorClock(5,1).getCurrentTime()));
     }
   }
 
@@ -542,7 +542,7 @@ public class AsyncStateFunctionReplayExample {
           }
           ++vtime[0];
           // System.out.println(name+" @Time:"+vtime[0]);
-          ctx.collect(new Message(name, new int[]{0,0,0}));
+          ctx.collect(new Message(name, new VectorClock(5,1).getCurrentTime()));
           try {
             List<VTState> offset = new ArrayList<>();
             offset.add(VTState.newBuilder().setOffset(count).addAllVt(Arrays.asList(vtime)).build());
