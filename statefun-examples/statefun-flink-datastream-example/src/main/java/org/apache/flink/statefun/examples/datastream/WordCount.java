@@ -113,7 +113,7 @@ public class WordCount {
     DataStream<RoutableMessage> names =
         env.addSource(new TextLineSource()).setParallelism(1)
             // env.addSource(new FlinkKafkaConsumer<>("sentences", new SimpleStringSchema(), properties))
-            .flatMap(new SentenceSplitFunction());
+            .flatMap(new SentenceSplitFunction()).setParallelism(2);
 
     StatefulFunctionDataStreamBuilder builder =
         StatefulFunctionDataStreamBuilder.builder("example")
@@ -179,7 +179,7 @@ public class WordCount {
     int indexOfTask;
     private ListState<MapOperatorState> state;
 
-    final int operatorIndex = 1;
+    int operatorIndex;
 
     private int nOperators = 5;
 
@@ -215,6 +215,7 @@ public class WordCount {
     @Override
     public void initializeState(FunctionInitializationContext context) throws Exception {
       indexOfTask = getRuntimeContext().getIndexOfThisSubtask();
+      operatorIndex = indexOfTask + 1;
       state = context.getOperatorStateStore().getListState(new ListStateDescriptor<>(
           "map" + indexOfTask,
           new ProtobufTypeSerializer<>(MapOperatorState.class)));
