@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ThreadLocalRandom;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
-import org.apache.flink.api.common.functions.RichMapFunction;
+import org.apache.flink.api.common.functions.util.PrintSinkOutputWriter;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.configuration.CheckpointingOptions;
@@ -41,7 +41,6 @@ import org.apache.flink.statefun.flink.core.message.RoutableMessage;
 import org.apache.flink.statefun.flink.core.message.RoutableMessageBuilder;
 import org.apache.flink.statefun.flink.datastream.StatefulFunctionDataStreamBuilder;
 import org.apache.flink.statefun.flink.datastream.StatefulFunctionEgressStreams;
-import org.apache.flink.statefun.sdk.Address;
 import org.apache.flink.statefun.sdk.Context;
 import org.apache.flink.statefun.sdk.FunctionType;
 import org.apache.flink.statefun.sdk.Message;
@@ -52,7 +51,7 @@ import org.apache.flink.statefun.sdk.state.PersistedValue;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.PrintSinkFunction;
+import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.flink.util.Collector;
 import org.apache.log4j.Level;
@@ -64,8 +63,8 @@ public class WordCount {
       "wordcount");
   private static final FunctionType SINK_FUNCTION_TYPE = new FunctionType("wordcountjob",
       "sink");
-  private static final EgressIdentifier<String> EGRESS_OUT =
-      new EgressIdentifier<>("example", "out4", String.class);
+  private static final EgressIdentifier<Message> EGRESS_OUT =
+      new EgressIdentifier<>("wordcount", "out", Message.class);
 
   public static void main(String... args) throws Exception {
 
@@ -74,7 +73,7 @@ public class WordCount {
     // -----------------------------------------------------------------------------------------
 
     Logger rootLogger = Logger.getRootLogger();
-    rootLogger.setLevel(Level.DEBUG);
+    rootLogger.setLevel(Level.INFO);
 
     //StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
     //env.enableCheckpointing(100);
@@ -116,60 +115,19 @@ public class WordCount {
             .flatMap(new SentenceSplitFunction()).setParallelism(2);
 
     StatefulFunctionDataStreamBuilder builder =
-        StatefulFunctionDataStreamBuilder.builder("example")
+        StatefulFunctionDataStreamBuilder.builder("wordcount")
             .withDataStreamAsIngress(names)
             .withFunctionProvider(WORD_COUNT_FUNCTION_TYPE, unused -> new WordCountFunction())
-            .withFunctionProvider(SINK_FUNCTION_TYPE, unused -> new SinkMockFunction())
             .withEgressId(EGRESS_OUT);
 
     StatefulFunctionEgressStreams out = builder.withConfiguration(statefunConfig).build(env);
 
-    // -----------------------------------------------------------------------------------------
-    // obtain the outputs
-    // -----------------------------------------------------------------------------------------
+    DataStream<Message> output = out.getDataStreamForEgressId(EGRESS_OUT);
 
-    //    DataStream<String> output3 = out.getDataStreamForEgressId(GREETINGS3);
-    //    DataStream<String> output4 = out.getDataStreamForEgressId(GREETINGS4);
-    DataStream<String> output = out.getDataStreamForEgressId(EGRESS_OUT);
+    output.addSink(new StatefulPrintOperator()).setParallelism(1);
 
-    // -----------------------------------------------------------------------------------------
-    // the rest of the pipeline
-    // -----------------------------------------------------------------------------------------
+    System.out.println("Flink Plan " + env.getExecutionPlan());
 
-    //    output3
-    //        .map(
-    //            new RichMapFunction<String, String>() {
-    //              @Override
-    //              public String map(String value) {
-    //                System.out.println(value);
-    //                return "' output 3 " + value + "'";
-    //              }
-    //            })
-    //        .addSink(new PrintSinkFunction<>());
-    //
-    //    output4
-    //        .map(
-    //                new RichMapFunction<String, String>() {
-    //                  @Override
-    //                  public String map(String value) {
-    //                    System.out.println(value);
-    //                    return "' output 4 " + value + "'";
-    //                  }
-    //                })
-    //        .addSink(new PrintSinkFunction<>());
-    output
-        .map(
-            new RichMapFunction<String, String>() {
-              @Override
-              public String map(String value) {
-                System.out.println(value);
-                return "' output  " + value + "'";
-              }
-            })
-        .addSink(new PrintSinkFunction<>());
-
-    System.out.println("Plan 4 " + env.getExecutionPlan());
-    // System.out.print(env.getStreamGraph("Flink Streaming Job", false));
     env.execute();
   }
 
@@ -219,7 +177,8 @@ public class WordCount {
       state = context.getOperatorStateStore().getListState(new ListStateDescriptor<>(
           "map" + indexOfTask,
           new ProtobufTypeSerializer<>(MapOperatorState.class)));
-      if (state.get() == null) {
+      Iterable<MapOperatorState> mapOperatorStates = state.get();
+      if (mapOperatorStates == null || !mapOperatorStates.iterator().hasNext()) {
         vectorClock = new VectorClock(nOperators, operatorIndex);
         List<MapOperatorState> operatorStates = new ArrayList<>();
         operatorStates
@@ -233,7 +192,7 @@ public class WordCount {
 
     @Persisted
     private final PersistedValue<ReduceOperatorState> wordCountState = PersistedValue
-        .of("seen4", ReduceOperatorState.class);
+        .of("count", ReduceOperatorState.class);
 
     final int operatorIndex = 3;
 
@@ -253,7 +212,7 @@ public class WordCount {
       clock.updateClock(message.getTimeVector());
       int wordcount = wordCountState.get().getWordCount() + 1;
 
-      context.send(new Address(SINK_FUNCTION_TYPE, "ALL"), new Message(String
+      context.send(EGRESS_OUT, new Message(String
           .format("(%s,%d)", message.getData(),
               wordcount),
           clock.getCurrentTime()));
@@ -265,28 +224,62 @@ public class WordCount {
 
   }
 
-  private static final class SinkMockFunction implements StatefulFunction {
-
-    @Persisted
-    private final PersistedValue<MapOperatorState> sinkState = PersistedValue
-        .of("sink", MapOperatorState.class);
+  private static final class StatefulPrintOperator extends RichSinkFunction<Message> implements
+      CheckpointedFunction {
 
     private VectorClock clock;
     private int nOperators = 5;
 
+    private int operatorIndex = 4;
+
+    private transient ListState<SinkOperatorState> state;
+
+    private PrintSinkOutputWriter<String> writer = null;
+
+    public StatefulPrintOperator() {
+      writer = new PrintSinkOutputWriter<>(false);
+    }
+
     @Override
-    public void invoke(Context context, Object input) {
-      if (sinkState.get() == null) {
-        clock = new VectorClock(nOperators, 4);
+    public void invoke(Message message, Context context) throws Exception {
+      Iterable<SinkOperatorState> sinkOperatorStates = state.get();
+      if (sinkOperatorStates == null || !sinkOperatorStates.iterator().hasNext()) {
+        clock = new VectorClock(nOperators, operatorIndex);
+        List<SinkOperatorState> operatorStates = new ArrayList<>();
+        operatorStates
+            .add(SinkOperatorState.newBuilder().addAllVTimestamp(clock.getCurrentTime())
+                .build());
+        state.update(operatorStates);
+      } else {
+        clock = new VectorClock(sinkOperatorStates.iterator().next().getVTimestampList(),
+            operatorIndex);
       }
-      Message message = (Message) input;
+
       clock.updateClock(message.getTimeVector());
-      context.send(EGRESS_OUT, String.format("%s at %s", ((Message) input).getData(),
+      List<SinkOperatorState> operatorStates = new ArrayList<>();
+      operatorStates
+          .add(SinkOperatorState.newBuilder().addAllVTimestamp(clock.getCurrentTime())
+              .build());
+      writer.write(String.format("%s at %s", message.getData(),
           Arrays.toString(clock.getCurrentTime().toArray())));
-      sinkState.set(MapOperatorState.newBuilder().addAllVTimestamp(clock.getCurrentTime())
-          .build());
+      state.update(operatorStates);
 
     }
+
+    @Override
+    public void snapshotState(FunctionSnapshotContext context) throws Exception {
+
+    }
+
+    @Override
+    public void initializeState(FunctionInitializationContext context) throws Exception {
+      writer.open(getRuntimeContext().getIndexOfThisSubtask(), getRuntimeContext().getNumberOfParallelSubtasks());
+      state = context.getOperatorStateStore().getListState(new ListStateDescriptor<>(
+          "sink",
+          new ProtobufTypeSerializer<>(SinkOperatorState.class)));
+    }
+
+
   }
 
   private static final class TextLineSource extends RichParallelSourceFunction<Message>
@@ -356,11 +349,12 @@ public class WordCount {
           "src" + indexOfTask,
           new ProtobufTypeSerializer<>(SourceOperatorState.class)));
 
-      if (state.get() != null) {
+      Iterable<SourceOperatorState> sourceOperatorStates = state.get();
+      if (sourceOperatorStates == null || !sourceOperatorStates.iterator().hasNext()) {
+        clock = new VectorClock(5, currentProcessIndex);
+      } else {
         clock = new VectorClock(state.get().iterator().next().getVTimestampList(),
             currentProcessIndex);
-      } else {
-        clock = new VectorClock(5, currentProcessIndex);
       }
     }
   }
