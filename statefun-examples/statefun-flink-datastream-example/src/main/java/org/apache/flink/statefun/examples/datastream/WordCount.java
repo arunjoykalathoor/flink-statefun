@@ -92,7 +92,7 @@ public class WordCount {
 
     env.getConfig()
         .registerTypeWithKryoSerializer(ReduceOperatorState.class, ProtobufSerializer.class);
-
+    env.setParallelism(1);
     env.getConfig().enableSysoutLogging();
     //    env.getConfig().setUseDynamicPartitioning(true);
     //    env.getConfig().setDispatchRebalanceEventInterval(10000);
@@ -323,7 +323,7 @@ public class WordCount {
             e.printStackTrace();
           }
         }
-        Thread.sleep(10);
+        Thread.sleep(5);
         if (count++ > 200000) {
           break;
         }
