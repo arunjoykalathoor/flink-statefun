@@ -112,7 +112,7 @@ public class WordCount {
     DataStream<RoutableMessage> names =
         env.addSource(new TextLineSource()).setParallelism(1)
             // env.addSource(new FlinkKafkaConsumer<>("sentences", new SimpleStringSchema(), properties))
-            .flatMap(new SentenceSplitFunction()).setParallelism(2);
+            .flatMap(new SentenceSplitFunction()).setParallelism(1);
 
     StatefulFunctionDataStreamBuilder builder =
         StatefulFunctionDataStreamBuilder.builder("wordcount")
