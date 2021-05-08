@@ -148,6 +148,7 @@ public class WordCount {
     public void flatMap(Message textLine, Collector<RoutableMessage> out) throws Exception {
       vectorClock.updateClock(textLine.getTimeVector());
       Arrays.stream(textLine.getData().split("\\s")).forEach(word -> {
+            //System.out.println(Arrays.toString(vectorClock.getCurrentTime().toArray(new Integer[0])));
             out.collect(RoutableMessageBuilder.builder()
                 .withTargetAddress(WORD_COUNT_FUNCTION_TYPE, "ALL")//name.getData()
                 .withMessageBody(new Message(word, vectorClock.getCurrentTime()))
@@ -209,6 +210,7 @@ public class WordCount {
       }
       clock = new VectorClock(wordCountState.get().getVTimestampList(), operatorIndex);
       Message message = (Message) input;
+      //System.out.println("Message " + Arrays.toString(message.getTimeVector().toArray(new Integer[0])));
       clock.updateClock(message.getTimeVector());
       int wordcount = wordCountState.get().getWordCount() + 1;
 
@@ -216,7 +218,7 @@ public class WordCount {
           .format("(%s,%d)", message.getData(),
               wordcount),
           clock.getCurrentTime()));
-
+      // System.out.println(Arrays.toString(clock.getCurrentTime().toArray(new Integer[0])));
       wordCountState.set(
           ReduceOperatorState.newBuilder().setWordCount(wordcount)
               .addAllVTimestamp(clock.getCurrentTime()).build());
@@ -254,12 +256,13 @@ public class WordCount {
         clock = new VectorClock(sinkOperatorStates.iterator().next().getVTimestampList(),
             operatorIndex);
       }
-
+      //System.out.println("Message " + Arrays.toString(message.getTimeVector().toArray(new Integer[0])));
       clock.updateClock(message.getTimeVector());
       List<SinkOperatorState> operatorStates = new ArrayList<>();
       operatorStates
           .add(SinkOperatorState.newBuilder().addAllVTimestamp(clock.getCurrentTime())
               .build());
+      // System.out.println(Arrays.toString(clock.getCurrentTime().toArray(new Integer[0])));
       writer.write(String.format("%s at %s", message.getData(),
           Arrays.toString(clock.getCurrentTime().toArray())));
       state.update(operatorStates);
@@ -273,7 +276,8 @@ public class WordCount {
 
     @Override
     public void initializeState(FunctionInitializationContext context) throws Exception {
-      writer.open(getRuntimeContext().getIndexOfThisSubtask(), getRuntimeContext().getNumberOfParallelSubtasks());
+      writer.open(getRuntimeContext().getIndexOfThisSubtask(),
+          getRuntimeContext().getNumberOfParallelSubtasks());
       state = context.getOperatorStateStore().getListState(new ListStateDescriptor<>(
           "sink",
           new ProtobufTypeSerializer<>(SinkOperatorState.class)));
@@ -317,6 +321,7 @@ public class WordCount {
             operatorStates
                 .add(SourceOperatorState.newBuilder().setOffset(count).addAllVTimestamp(
                     clock.getCurrentTime()).build());
+            //System.out.println(Arrays.toString(clock.getCurrentTime().toArray(new Integer[0])));
             ctx.collect(new Message(name, clock.getCurrentTime())); //TODO Bug from Order
             state.update(operatorStates);
           } catch (Exception e) {
