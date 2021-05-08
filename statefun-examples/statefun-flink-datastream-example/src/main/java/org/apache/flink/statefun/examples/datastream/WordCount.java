@@ -24,6 +24,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Function;
+import org.apache.flink.api.common.functions.Partitioner;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.common.functions.util.PrintSinkOutputWriter;
 import org.apache.flink.api.common.state.ListState;
@@ -111,6 +113,7 @@ public class WordCount {
     System.out.print(env.getConfig());
     DataStream<RoutableMessage> names =
         env.addSource(new TextLineSource()).setParallelism(1)
+            .partitionCustom(new VectorIndexModuloPartitioner(0), key -> key) //For predictable partitioning
             // env.addSource(new FlinkKafkaConsumer<>("sentences", new SimpleStringSchema(), properties))
             .flatMap(new SentenceSplitFunction()).setParallelism(2);
 
@@ -129,6 +132,21 @@ public class WordCount {
     System.out.println("Flink Plan " + env.getExecutionPlan());
 
     env.execute();
+  }
+
+  public static class VectorIndexModuloPartitioner implements Partitioner<Message> {
+
+    int index;
+
+    public VectorIndexModuloPartitioner(int index) {
+      this.index = index;
+    }
+
+    @Override
+    public int partition(Message key, int numPartitions) {
+      return key.getTimeVector().get(index)
+          % numPartitions; //TODO  data may not be partioned evenly when not used after Index 0;
+    }
   }
 
   private static final class SentenceSplitFunction extends
@@ -210,7 +228,8 @@ public class WordCount {
       }
       clock = new VectorClock(wordCountState.get().getVTimestampList(), operatorIndex);
       Message message = (Message) input;
-      //System.out.println("Message " + Arrays.toString(message.getTimeVector().toArray(new Integer[0])));
+      System.out
+          .println("Message " + Arrays.toString(message.getTimeVector().toArray(new Integer[0])));
       clock.updateClock(message.getTimeVector());
       int wordcount = wordCountState.get().getWordCount() + 1;
 
@@ -328,7 +347,6 @@ public class WordCount {
             e.printStackTrace();
           }
         }
-        Thread.sleep(5);
         if (count++ > 200000) {
           break;
         }
