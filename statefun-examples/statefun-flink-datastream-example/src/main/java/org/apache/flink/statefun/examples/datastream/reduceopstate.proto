@@ -8,4 +8,6 @@ option java_package = "org.apache.flink.statefun.examples.datastream";
 message ReduceOperatorState {
   optional int32 wordCount = 1;
   repeated int32 vTimestamp = 2;
+  optional int32 numInputs = 3;
+  optional int32 numOutputs = 4;
 }

@@ -115,7 +115,7 @@ public class WordCount {
         env.addSource(new TextLineSource()).setParallelism(1)
             .partitionCustom(new VectorIndexModuloPartitioner(0), key -> key) //For predictable partitioning
             // env.addSource(new FlinkKafkaConsumer<>("sentences", new SimpleStringSchema(), properties))
-            .flatMap(new SentenceSplitFunction()).setParallelism(2);
+            .flatMap(new SentenceSplitFunction()).setParallelism(1);
 
     StatefulFunctionDataStreamBuilder builder =
         StatefulFunctionDataStreamBuilder.builder("wordcount")
