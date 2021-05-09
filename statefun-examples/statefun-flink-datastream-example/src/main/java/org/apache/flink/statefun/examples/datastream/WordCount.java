@@ -155,7 +155,7 @@ public class WordCount {
                 .build());
             List<MapOperatorState> operatorStates = new ArrayList<>();
             operatorStates
-                .add(MapOperatorState.newBuilder().addAllVTimestamp(vectorClock.getCurrentTime())
+                .add(MapOperatorState.newBuilder().addInputCounts().addAllVTimestamp(vectorClock.getCurrentTime())
                     .build());
             try {
               state.update(operatorStates);

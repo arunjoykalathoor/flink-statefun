@@ -6,8 +6,9 @@ option java_multiple_files = true;
 option java_package = "org.apache.flink.statefun.examples.datastream";
 
 message SourceOperatorState {
-  optional int32 offset = 1;
+  optional int32 ID = 1;
   repeated int32 vTimestamp = 2;
-  optional int32 numInputs = 3;
-  optional int32 numOutputs = 4;
+  map<int32, int32> InputCounts = 3;
+  map<int32, int32> OutputCounts = 4;
+  optional int32 OperatorType = 5 [default=1];
 }
